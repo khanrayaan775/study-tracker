@@ -20,6 +20,7 @@ export default function StudyTracker() {
   const [type, setType] = useState(null);
   const [planningReadingId, setPlanningReadingId] = useState(null);
   const [planningDays, setPlanningDays] = useState('');
+  const [planningStartDate, setPlanningStartDate] = useState(todayStr());
   const [userName, setUserName] = useState('');
   const [tempName, setTempName] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -47,7 +48,7 @@ export default function StudyTracker() {
         let b = [];
         if (booksResult?.value) {
           b = JSON.parse(booksResult.value);
-          b = b.map(book => ({ ...book, tagIds: book.tagIds || [] }));
+          b = b.map(book => ({ ...book, tagIds: book.tagIds || [], startsAfterBookId: book.startsAfterBookId ?? null }));
           setBooks(b);
         }
         const seriesResult = await window.storage.get('study-series');
@@ -103,9 +104,18 @@ export default function StudyTracker() {
   }, [selectedDate]);
 
   const updateBooks = (updatedBooks, activityDate) => {
-    setBooks(updatedBooks);
+    let final = updatedBooks;
+    const today = todayStr();
+    updatedBooks.forEach(b => {
+      if (b.currentPage >= b.totalPages) {
+        final = final.map(c =>
+          c.startsAfterBookId === b.id ? { ...c, startDate: today, currentPage: 1 } : c
+        );
+      }
+    });
+    setBooks(final);
     try {
-      if (window.storage?.set) window.storage.set('study-books', JSON.stringify(updatedBooks));
+      if (window.storage?.set) window.storage.set('study-books', JSON.stringify(final));
       if (activityDate) recordActivity(activityDate);
     } catch (e) {
       console.error('Save error:', e);
@@ -210,17 +220,19 @@ export default function StudyTracker() {
     }
   };
 
-  const planReading = (bookId, days) => {
+  const planReading = (bookId, days, startDate) => {
     if (!days) return;
+    const start = startDate || todayStr();
     const updated = books.map(book => {
       if (book.id === bookId) {
-        return { ...book, daysToComplete: parseInt(days), startDate: new Date().toISOString().split('T')[0] };
+        return { ...book, daysToComplete: parseInt(days), startDate: start };
       }
       return book;
     });
     updateBooks(updated);
     setPlanningReadingId(null);
     setPlanningDays('');
+    setPlanningStartDate(todayStr());
   };
 
   const handleCoverUpload = (file, isBook) => {
@@ -250,7 +262,8 @@ export default function StudyTracker() {
       note: '',
       startDate: new Date().toISOString().split('T')[0],
       studyDays: {},
-      tagIds: []
+      tagIds: [],
+      startsAfterBookId: null
     };
     updateBooks([...books, book]);
     setNewBook({ title: '', author: '', totalPages: '', daysToComplete: '', cover: null, coverPreview: null });
@@ -283,12 +296,12 @@ export default function StudyTracker() {
   const getDailyTask = (item, date, isSeries = false) => {
     const totalItems = isSeries ? item.totalLectures : item.totalPages;
     const daysToComplete = item.daysToComplete || 0;
-    
-    if (!daysToComplete || daysToComplete === 0) {
+    const startDate = item.startDate || todayStr();
+    if (!daysToComplete || daysToComplete === 0 || date < startDate) {
       return { targetAmount: 0, itemsPerDay: 0, daysElapsed: 0, daysBehind: 0, isOverdue: false };
     }
 
-    const [startYear, startMonth, startDay] = item.startDate.split('-').map(Number);
+    const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
     const [currentYear, currentMonth, currentDay] = date.split('-').map(Number);
     
     const startD = new Date(startYear, startMonth - 1, startDay);
@@ -308,12 +321,15 @@ export default function StudyTracker() {
 
   const getDaysRemaining = (item, forDate) => {
     const daysToComplete = item.daysToComplete || 0;
+    const startDate = item.startDate || todayStr();
     if (!daysToComplete) return { daysToComplete: 0, daysRemaining: null };
-    const [sy, sm, sd] = item.startDate.split('-').map(Number);
+    const forD = forDate || selectedDate;
+    if (forD < startDate) return { daysToComplete, daysRemaining: daysToComplete };
+    const [sy, sm, sd] = startDate.split('-').map(Number);
     const start = new Date(sy, sm - 1, sd);
     const end = new Date(start);
     end.setDate(end.getDate() + daysToComplete - 1);
-    const [cy, cm, cd] = (forDate || selectedDate).split('-').map(Number);
+    const [cy, cm, cd] = forD.split('-').map(Number);
     const today = new Date(cy, cm - 1, cd);
     const msRemaining = end.getTime() - today.getTime();
     const daysRemaining = Math.max(0, Math.ceil(msRemaining / (24 * 60 * 60 * 1000)));
@@ -324,7 +340,7 @@ export default function StudyTracker() {
     const tasks = [];
     
     books.forEach(book => {
-      if (book.daysToComplete && book.currentPage < book.totalPages) {
+      if (book.daysToComplete && book.currentPage < book.totalPages && (!book.startDate || book.startDate <= selectedDate)) {
         const task = getDailyTask(book, selectedDate);
         if (task.itemsPerDay > 0) {
           // Only show task if they haven't met today's target yet
@@ -358,7 +374,7 @@ export default function StudyTracker() {
     });
 
     series.forEach(s => {
-      if (s.daysToComplete && s.lecturesCompleted < s.totalLectures) {
+      if (s.daysToComplete && s.lecturesCompleted < s.totalLectures && (!s.startDate || s.startDate <= selectedDate)) {
         const task = getDailyTask(s, selectedDate, true);
         if (task.itemsPerDay > 0) {
           // Only show task if they haven't met today's target yet
@@ -667,13 +683,14 @@ export default function StudyTracker() {
 
   // HOME VIEW
   if (view === 'home') {
-    const currentBooks = books.filter(b => b.currentPage > 0 && b.currentPage < b.totalPages);
+    const today = todayStr();
+    const currentBooks = books.filter(b => b.currentPage < b.totalPages && (!b.startDate || b.startDate <= today) && (b.currentPage > 0 || (b.daysToComplete && b.startDate && b.startDate <= today)));
     const completedBooks = books.filter(b => b.currentPage >= b.totalPages);
-    const toReadBooks = books.filter(b => b.currentPage === 0);
+    const toReadBooks = books.filter(b => b.currentPage === 0 || (b.startDate && b.startDate > today));
 
-    const currentSeries = series.filter(s => s.lecturesCompleted > 0 && s.lecturesCompleted < s.totalLectures);
+    const currentSeries = series.filter(s => s.lecturesCompleted < s.totalLectures && (!s.startDate || s.startDate <= today) && (s.lecturesCompleted > 0 || (s.daysToComplete && s.startDate && s.startDate <= today)));
     const completedSeries = series.filter(s => s.lecturesCompleted >= s.totalLectures);
-    const toWatchSeries = series.filter(s => s.lecturesCompleted === 0);
+    const toWatchSeries = series.filter(s => s.lecturesCompleted === 0 || (s.startDate && s.startDate > today));
 
     const isShowingBooks = tabView === 'books-current' || tabView === 'books-completed' || tabView === 'books-toread';
     let itemsToShow = [];
@@ -953,6 +970,16 @@ export default function StudyTracker() {
                         </select>
                       </div>
 
+                    {!isSeries && (
+                      <div style={{ marginTop: '0.5rem', fontSize: '12px', color: colors.textSecondary }} onClick={(e) => e.stopPropagation()}>
+                        <label style={{ fontWeight: '500' }}>Start after: </label>
+                        <select value={item.startsAfterBookId ?? ''} onChange={(e) => { const v = e.target.value; updateBooks(books.map(b => b.id === item.id ? { ...b, startsAfterBookId: v ? Number(v) : null } : b)); }} style={{ padding: '0.25rem 0.5rem', fontSize: '12px', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgSecondary, color: colors.text, marginLeft: '0.25rem' }}>
+                          <option value="">None</option>
+                          {books.filter(b => b.id !== item.id).map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                        </select>
+                      </div>
+                    )}
+
                     <div style={{ marginBottom: '0.5rem', marginTop: '0.5rem' }}>
                       <div style={{ fontSize: '12px', color: colors.textSecondary, marginBottom: '0.25rem', fontWeight: '500' }}>
                         {isSeries ? `Lectures: ${item.lecturesCompleted} / ${item.totalLectures}` : `Pages: ${item.currentPage} / ${item.totalPages}`}
@@ -1036,7 +1063,7 @@ export default function StudyTracker() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setPlanningReadingId(item.id);
+                          setPlanningReadingId(item.id); setPlanningStartDate(todayStr());
                           setPlanningDays('');
                         }}
                         style={{ 
@@ -1124,12 +1151,16 @@ export default function StudyTracker() {
               />
               <span style={{ fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>days</span>
             </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.35rem', color: colors.textSecondary }}>Start date</label>
+              <input type="date" value={planningStartDate} onChange={(e) => setPlanningStartDate(e.target.value)} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: `0.5px solid ${colors.border}`, borderRadius: 'var(--border-radius-md)', background: colors.bgSecondary, color: colors.text }} />
+            </div>
             <p style={{ margin: '0.5rem 0 1rem 0', fontSize: '12px', color: colors.textSecondary }}>
               {planningDays ? `~${Math.ceil(books.find(b => b.id === planningReadingId)?.totalPages / parseInt(planningDays))} pages/day` : 'Enter days to see daily goal'}
             </p>
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button 
-                onClick={() => planReading(planningReadingId, planningDays)} 
+                onClick={() => planReading(planningReadingId, planningDays, planningStartDate)} 
                 style={{ 
                   flex: 1, 
                   padding: '0.75rem', 
@@ -1148,7 +1179,7 @@ export default function StudyTracker() {
                 Plan it
               </button>
               <button 
-                onClick={() => { setPlanningReadingId(null); setPlanningDays(''); }} 
+                onClick={() => { setPlanningReadingId(null); setPlanningDays(''); setPlanningStartDate(todayStr()); }} 
                 style={{ 
                   flex: 1, 
                   padding: '0.75rem', 
@@ -1457,8 +1488,8 @@ export default function StudyTracker() {
       <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: `0.5px solid ${colors.border}`, borderRadius: 'var(--border-radius-md)', background: colors.bgPrimary, color: colors.text, fontFamily: 'inherit', marginBottom: '2rem' }} />
 
       {(() => {
-        const activeBooks = books.filter(b => b.currentPage < b.totalPages);
-        const activeSeries = series.filter(s => s.lecturesCompleted < s.totalLectures);
+        const activeBooks = books.filter(b => b.currentPage < b.totalPages && (!b.startDate || b.startDate <= selectedDate));
+        const activeSeries = series.filter(s => s.lecturesCompleted < s.totalLectures && (!s.startDate || s.startDate <= selectedDate));
         if (activeBooks.length === 0 && activeSeries.length === 0) {
           return (
             <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: colors.textSecondary, background: colors.bgPrimary, borderRadius: 'var(--border-radius-lg)', border: `0.5px solid ${colors.border}` }}>
