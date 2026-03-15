@@ -12,7 +12,7 @@ export default function StudyTracker() {
   const [showAddBook, setShowAddBook] = useState(false);
   const [showAddSeries, setShowAddSeries] = useState(false);
   const [view, setView] = useState('dashboard');
-  const [tabView, setTabView] = useState('books');
+  const [tabView, setTabView] = useState('books-current');
   const [newBook, setNewBook] = useState({ title: '', author: '', totalPages: '', daysToComplete: '', cover: null, coverPreview: null });
   const [newSeries, setNewSeries] = useState({ title: '', instructor: '', totalLectures: '', daysToComplete: '', cover: null, coverPreview: null });
   const [startingId, setStartingId] = useState(null);
