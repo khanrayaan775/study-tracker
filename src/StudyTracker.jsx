@@ -28,6 +28,7 @@ export default function StudyTracker() {
   const [adjustingId, setAdjustingId] = useState(null);
   const [adjustingType, setAdjustingType] = useState(null);
   const [adjustingDays, setAdjustingDays] = useState('');
+  const [adjustingStartDate, setAdjustingStartDate] = useState('');
   const [adjustingStartFromToday, setAdjustingStartFromToday] = useState(false);
   const [showAddTag, setShowAddTag] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -172,19 +173,20 @@ export default function StudyTracker() {
   const applyAdjust = () => {
     const days = parseInt(adjustingDays, 10);
     if (!adjustingId || !adjustingType || !days || days < 1) return;
-    const today = todayStr();
+    const startDate = adjustingStartFromToday ? todayStr() : (adjustingStartDate || undefined);
     if (adjustingType === 'book') {
       updateBooks(books.map(b => b.id === adjustingId
-        ? { ...b, daysToComplete: days, ...(adjustingStartFromToday ? { startDate: today } : {}) }
+        ? { ...b, daysToComplete: days, ...(startDate ? { startDate } : {}) }
         : b));
     } else {
       updateSeries(series.map(s => s.id === adjustingId
-        ? { ...s, daysToComplete: days, ...(adjustingStartFromToday ? { startDate: today } : {}) }
+        ? { ...s, daysToComplete: days, ...(startDate ? { startDate } : {}) }
         : s));
     }
     setAdjustingId(null);
     setAdjustingType(null);
     setAdjustingDays('');
+    setAdjustingStartDate('');
     setAdjustingStartFromToday(false);
   };
 
@@ -911,16 +913,20 @@ export default function StudyTracker() {
                           <div style={{ margin: '0.25rem 0 0 0' }} onClick={(e) => e.stopPropagation()}>
                             <p style={{ margin: 0, fontSize: '12px', color: colors.textSecondary, fontWeight: '500', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                               Plan: {info.daysToComplete} days · {info.daysRemaining} day{info.daysRemaining !== 1 ? 's' : ''} remaining
-                              <button type="button" onClick={() => { setAdjustingId(item.id); setAdjustingType(isSeries ? 'series' : 'book'); setAdjustingDays(String(item.daysToComplete)); setAdjustingStartFromToday(false); }} style={{ padding: '0.2rem 0.5rem', fontSize: '11px', border: `0.5px solid ${colors.border}`, background: colors.bgSecondary, borderRadius: 4, cursor: 'pointer', color: colors.text, fontWeight: '500' }}>Adjust</button>
+                              <button type="button" onClick={() => { setAdjustingId(item.id); setAdjustingType(isSeries ? 'series' : 'book'); setAdjustingDays(String(item.daysToComplete)); setAdjustingStartDate(item.startDate || todayStr()); setAdjustingStartFromToday(false); }} style={{ padding: '0.2rem 0.5rem', fontSize: '11px', border: `0.5px solid ${colors.border}`, background: colors.bgSecondary, borderRadius: 4, cursor: 'pointer', color: colors.text, fontWeight: '500' }}>Adjust</button>
                             </p>
                             {isAdjusting && (
                               <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', border: `0.5px solid ${colors.border}` }}>
                                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Days to complete</label>
                                 <input type="number" min={1} value={adjustingDays} onChange={(e) => setAdjustingDays(e.target.value)} style={{ width: '80px', padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
-                                <label style={{ fontSize: '12px', color: colors.text, marginLeft: '0.5rem' }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                                <div style={{ marginTop: '0.5rem' }}>
+                                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Start date</label>
+                                  <input type="date" value={adjustingStartDate} onChange={(e) => setAdjustingStartDate(e.target.value)} style={{ padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
+                                  <label style={{ fontSize: '12px', color: colors.text, marginLeft: '0.5rem' }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                                </div>
                                 <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
                                   <button type="button" onClick={() => applyAdjust()} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: colors.bgPrimary, border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Save</button>
-                                  <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
+                                  <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); setAdjustingStartDate(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
                                 </div>
                               </div>
                             )}
@@ -1478,17 +1484,21 @@ export default function StudyTracker() {
                     <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>
                       Plan: {daysInfo.daysToComplete} days · {daysInfo.daysRemaining} day{daysInfo.daysRemaining !== 1 ? 's' : ''} remaining
                     </p>
-                    <button type="button" onClick={() => { setAdjustingId(book.id); setAdjustingType('book'); setAdjustingDays(String(book.daysToComplete)); setAdjustingStartFromToday(false); }} style={{ marginTop: '0.35rem', padding: '0.35rem 0.65rem', fontSize: '12px', border: `1px solid ${colors.borderSecondary}`, background: isDarkMode ? '#3a3a3a' : colors.bgSecondary, borderRadius: 'var(--border-radius-md)', cursor: 'pointer', color: colors.text, fontWeight: '500', display: 'inline-block' }}>
+                    <button type="button" onClick={() => { setAdjustingId(book.id); setAdjustingType('book'); setAdjustingDays(String(book.daysToComplete)); setAdjustingStartDate(book.startDate || todayStr()); setAdjustingStartFromToday(false); }} style={{ marginTop: '0.35rem', padding: '0.35rem 0.65rem', fontSize: '12px', border: `1px solid ${colors.borderSecondary}`, background: isDarkMode ? '#3a3a3a' : colors.bgSecondary, borderRadius: 'var(--border-radius-md)', cursor: 'pointer', color: colors.text, fontWeight: '500', display: 'inline-block' }}>
                       Adjust plan
                     </button>
                     {adjustingId === book.id && adjustingType === 'book' && (
                       <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', border: `0.5px solid ${colors.border}` }}>
                         <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Days to complete</label>
                         <input type="number" min={1} value={adjustingDays} onChange={(e) => setAdjustingDays(e.target.value)} style={{ width: '80px', padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
-                        <label style={{ fontSize: '12px', color: colors.text }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                        <div style={{ marginTop: '0.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Start date</label>
+                          <input type="date" value={adjustingStartDate} onChange={(e) => setAdjustingStartDate(e.target.value)} style={{ padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
+                          <label style={{ fontSize: '12px', color: colors.text }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                        </div>
                         <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
                           <button type="button" onClick={() => applyAdjust()} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: colors.bgPrimary, border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Save</button>
-                          <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
+                          <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); setAdjustingStartDate(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
                         </div>
                       </div>
                     )}
@@ -1572,17 +1582,21 @@ export default function StudyTracker() {
                     <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>
                       Plan: {daysInfo.daysToComplete} days · {daysInfo.daysRemaining} day{daysInfo.daysRemaining !== 1 ? 's' : ''} remaining
                     </p>
-                    <button type="button" onClick={() => { setAdjustingId(s.id); setAdjustingType('series'); setAdjustingDays(String(s.daysToComplete)); setAdjustingStartFromToday(false); }} style={{ marginTop: '0.35rem', padding: '0.35rem 0.65rem', fontSize: '12px', border: `1px solid ${colors.borderSecondary}`, background: isDarkMode ? '#3a3a3a' : colors.bgSecondary, borderRadius: 'var(--border-radius-md)', cursor: 'pointer', color: colors.text, fontWeight: '500', display: 'inline-block' }}>
+                    <button type="button" onClick={() => { setAdjustingId(s.id); setAdjustingType('series'); setAdjustingDays(String(s.daysToComplete)); setAdjustingStartDate(s.startDate || todayStr()); setAdjustingStartFromToday(false); }} style={{ marginTop: '0.35rem', padding: '0.35rem 0.65rem', fontSize: '12px', border: `1px solid ${colors.borderSecondary}`, background: isDarkMode ? '#3a3a3a' : colors.bgSecondary, borderRadius: 'var(--border-radius-md)', cursor: 'pointer', color: colors.text, fontWeight: '500', display: 'inline-block' }}>
                       Adjust plan
                     </button>
                     {adjustingId === s.id && adjustingType === 'series' && (
                       <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', border: `0.5px solid ${colors.border}` }}>
                         <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Days to complete</label>
                         <input type="number" min={1} value={adjustingDays} onChange={(e) => setAdjustingDays(e.target.value)} style={{ width: '80px', padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
-                        <label style={{ fontSize: '12px', color: colors.text }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                        <div style={{ marginTop: '0.5rem' }}>
+                          <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Start date</label>
+                          <input type="date" value={adjustingStartDate} onChange={(e) => setAdjustingStartDate(e.target.value)} style={{ padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
+                          <label style={{ fontSize: '12px', color: colors.text }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                        </div>
                         <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
                           <button type="button" onClick={() => applyAdjust()} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: colors.bgPrimary, border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Save</button>
-                          <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
+                          <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); setAdjustingStartDate(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
                         </div>
                       </div>
                     )}
