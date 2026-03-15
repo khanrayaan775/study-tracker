@@ -23,6 +23,17 @@ export default function StudyTracker() {
   const [userName, setUserName] = useState('');
   const [tempName, setTempName] = useState('');
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [tags, setTags] = useState([]);
+  const [activityDates, setActivityDates] = useState([]);
+  const [adjustingId, setAdjustingId] = useState(null);
+  const [adjustingType, setAdjustingType] = useState(null);
+  const [adjustingDays, setAdjustingDays] = useState('');
+  const [adjustingStartFromToday, setAdjustingStartFromToday] = useState(false);
+  const [showAddTag, setShowAddTag] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#3b82f6');
+
+  const TAG_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899'];
 
   useEffect(() => {
     const loadData = async () => {
@@ -32,10 +43,23 @@ export default function StudyTracker() {
           return;
         }
         const booksResult = await window.storage.get('study-books');
-        if (booksResult?.value) setBooks(JSON.parse(booksResult.value));
-        
+        let b = [];
+        if (booksResult?.value) {
+          b = JSON.parse(booksResult.value);
+          b = b.map(book => ({ ...book, tagIds: book.tagIds || [] }));
+          setBooks(b);
+        }
         const seriesResult = await window.storage.get('study-series');
-        if (seriesResult?.value) setSeries(JSON.parse(seriesResult.value));
+        let s = [];
+        if (seriesResult?.value) {
+          s = JSON.parse(seriesResult.value);
+          s = s.map(ser => ({ ...ser, tagIds: ser.tagIds || [] }));
+          setSeries(s);
+        }
+        const tagsResult = await window.storage.get('user-tags');
+        if (tagsResult?.value) setTags(JSON.parse(tagsResult.value));
+        const activityResult = await window.storage.get('user-activity-dates');
+        if (activityResult?.value) setActivityDates(JSON.parse(activityResult.value));
 
         const nameResult = await window.storage.get('user-name');
         if (nameResult?.value) {
@@ -77,22 +101,91 @@ export default function StudyTracker() {
     if (selectedDate === todayStr()) lastKnownTodayRef.current = selectedDate;
   }, [selectedDate]);
 
-  const updateBooks = (updatedBooks) => {
+  const updateBooks = (updatedBooks, activityDate) => {
     setBooks(updatedBooks);
     try {
       if (window.storage?.set) window.storage.set('study-books', JSON.stringify(updatedBooks));
+      if (activityDate) recordActivity(activityDate);
     } catch (e) {
       console.error('Save error:', e);
     }
   };
 
-  const updateSeries = (updatedSeries) => {
+  const updateSeries = (updatedSeries, activityDate) => {
     setSeries(updatedSeries);
     try {
       if (window.storage?.set) window.storage.set('study-series', JSON.stringify(updatedSeries));
+      if (activityDate) recordActivity(activityDate);
     } catch (e) {
       console.error('Save error:', e);
     }
+  };
+
+  const updateTags = (newTags) => {
+    setTags(newTags);
+    try {
+      if (window.storage?.set) window.storage.set('user-tags', JSON.stringify(newTags));
+    } catch (e) {
+      console.error('Save error:', e);
+    }
+  };
+
+  const recordActivity = (date) => {
+    if (!date || !window.storage?.set) return;
+    const next = activityDates.includes(date) ? activityDates : [...activityDates, date].sort();
+    setActivityDates(next);
+    try {
+      window.storage.set('user-activity-dates', JSON.stringify(next));
+    } catch (e) {
+      console.error('Save error:', e);
+    }
+  };
+
+  const getStreak = (upToDate = selectedDate) => {
+    const sorted = [...activityDates].sort();
+    if (sorted.length === 0) return { current: 0, longest: 0 };
+    let longest = 1;
+    let run = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const [py, pm, pd] = sorted[i - 1].split('-').map(Number);
+      const [cy, cm, cd] = sorted[i].split('-').map(Number);
+      const prevD = new Date(py, pm - 1, pd).getTime();
+      const currD = new Date(cy, cm - 1, cd).getTime();
+      const diffDays = (currD - prevD) / (24 * 60 * 60 * 1000);
+      if (diffDays === 1) run++;
+      else run = 1;
+      longest = Math.max(longest, run);
+    }
+    const pad = (n) => String(n).padStart(2, '0');
+    let current = 0;
+    let checkDate = upToDate || todayStr();
+    while (sorted.includes(checkDate)) {
+      current++;
+      const [y, m, d] = checkDate.split('-').map(Number);
+      const prev = new Date(y, m - 1, d);
+      prev.setDate(prev.getDate() - 1);
+      checkDate = `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}-${pad(prev.getDate())}`;
+    }
+    return { current, longest };
+  };
+
+  const applyAdjust = () => {
+    const days = parseInt(adjustingDays, 10);
+    if (!adjustingId || !adjustingType || !days || days < 1) return;
+    const today = todayStr();
+    if (adjustingType === 'book') {
+      updateBooks(books.map(b => b.id === adjustingId
+        ? { ...b, daysToComplete: days, ...(adjustingStartFromToday ? { startDate: today } : {}) }
+        : b));
+    } else {
+      updateSeries(series.map(s => s.id === adjustingId
+        ? { ...s, daysToComplete: days, ...(adjustingStartFromToday ? { startDate: today } : {}) }
+        : s));
+    }
+    setAdjustingId(null);
+    setAdjustingType(null);
+    setAdjustingDays('');
+    setAdjustingStartFromToday(false);
   };
 
   const saveName = (name) => {
@@ -154,7 +247,8 @@ export default function StudyTracker() {
       notesPage: 0,
       note: '',
       startDate: new Date().toISOString().split('T')[0],
-      studyDays: {}
+      studyDays: {},
+      tagIds: []
     };
     updateBooks([...books, book]);
     setNewBook({ title: '', author: '', totalPages: '', daysToComplete: '', cover: null, coverPreview: null });
@@ -173,7 +267,8 @@ export default function StudyTracker() {
       lecturesCompleted: 0,
       startDate: new Date().toISOString().split('T')[0],
       lectureNotes: {},
-      studyDays: {}
+      studyDays: {},
+      tagIds: []
     };
     updateSeries([...series, s]);
     setNewSeries({ title: '', instructor: '', totalLectures: '', daysToComplete: '', cover: null, coverPreview: null });
@@ -456,7 +551,10 @@ export default function StudyTracker() {
             <h1 style={{ margin: '0', fontSize: '28px', fontWeight: '400', fontFamily: 'Georgia, serif', color: colors.text }}>
               hey {userName.toLowerCase()}. here's what you have to do today
             </h1>
-            <p style={{ margin: '0.5rem 0 0 0', fontSize: '11px', color: colors.textSecondary, fontWeight: '500' }}>Study Tracker v1.1 · Date fix & book notes</p>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '11px', color: colors.textSecondary, fontWeight: '500' }}>Study Tracker v1.2 · Adjust goal, streak, tags</p>
+            {(() => { const streak = getStreak(todayStr()); return streak.current > 0 || streak.longest > 0 ? (
+              <p style={{ margin: '0.25rem 0 0 0', fontSize: '13px', fontWeight: '600', color: colors.text }}>🔥 {streak.current} day{streak.current !== 1 ? 's' : ''} streak {streak.longest > streak.current ? ` · Longest: ${streak.longest}` : ''}</p>
+            ) : null; })()}
           </div>
           <button
             onClick={toggleTheme}
@@ -646,7 +744,7 @@ export default function StudyTracker() {
         <div style={{ marginBottom: '2.5rem' }}>
           <h1 style={{ margin: '0 0 1.5rem 0', fontSize: '32px', fontWeight: '400', fontFamily: 'Georgia, serif', color: colors.text }}>Your Library</h1>
           
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', padding: '1rem 1.25rem', background: colors.bgPrimary, borderRadius: 'var(--border-radius-lg)', border: `0.5px solid ${colors.border}` }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', padding: '1rem 1.25rem', background: colors.bgPrimary, borderRadius: 'var(--border-radius-lg)', border: `0.5px solid ${colors.border}`, marginBottom: '1rem' }}>
             <span style={{ fontSize: '13px', color: colors.textSecondary, fontWeight: '500', minWidth: '50px' }}>Today:</span>
             <input 
               type="date" 
@@ -654,6 +752,33 @@ export default function StudyTracker() {
               onChange={(e) => setSelectedDate(e.target.value)}
               style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: `0.5px solid ${colors.border}`, borderRadius: 'var(--border-radius-md)', background: colors.bgSecondary, color: colors.text, fontFamily: 'inherit', flex: 1 }}
             />
+          </div>
+
+          <div style={{ padding: '1rem 1.25rem', background: colors.bgPrimary, borderRadius: 'var(--border-radius-lg)', border: `0.5px solid ${colors.border}`, marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showAddTag ? '0.75rem' : 0 }}>
+              <span style={{ fontSize: '14px', fontWeight: '600', color: colors.text }}>Tags</span>
+              <button type="button" onClick={() => setShowAddTag(!showAddTag)} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', border: `0.5px solid ${colors.border}`, background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', cursor: 'pointer', color: colors.text }}>{showAddTag ? 'Cancel' : '+ New tag'}</button>
+            </div>
+            {showAddTag && (
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                <input type="text" placeholder="Tag name" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} style={{ padding: '0.4rem 0.6rem', fontSize: '13px', border: `0.5px solid ${colors.border}`, borderRadius: 'var(--border-radius-md)', background: colors.bgSecondary, color: colors.text, flex: 1, minWidth: '100px' }} />
+                <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                  {TAG_COLORS.map(c => (
+                    <button key={c} type="button" onClick={() => setNewTagColor(c)} style={{ width: 24, height: 24, borderRadius: 4, background: c, border: newTagColor === c ? '2px solid ' + colors.text : 'none', cursor: 'pointer' }} title={c} />
+                  ))}
+                </div>
+                <button type="button" onClick={() => { if (newTagName.trim()) { updateTags([...tags, { id: Date.now(), name: newTagName.trim(), color: newTagColor }]); setNewTagName(''); setNewTagColor(TAG_COLORS[0]); setShowAddTag(false); } }} style={{ padding: '0.4rem 0.75rem', fontSize: '12px', background: colors.bgSecondary, border: `0.5px solid ${colors.border}`, borderRadius: 'var(--border-radius-md)', cursor: 'pointer', color: colors.text }}>Save</button>
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {tags.map(t => (
+                <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.6rem', fontSize: '12px', borderRadius: 'var(--border-radius-md)', background: t.color || '#3b82f6', color: '#fff' }}>
+                  {t.name}
+                  <button type="button" onClick={() => { updateTags(tags.filter(x => x.id !== t.id)); updateBooks(books.map(b => ({ ...b, tagIds: (b.tagIds || []).filter(id => id !== t.id) }))); updateSeries(series.map(s => ({ ...s, tagIds: (s.tagIds || []).filter(id => id !== t.id) }))); }} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, fontSize: '14px', lineHeight: 1 }}>×</button>
+                </span>
+              ))}
+              {tags.length === 0 && !showAddTag && <span style={{ fontSize: '13px', color: colors.textSecondary }}>No tags yet. Add one to categorize books and series.</span>}
+            </div>
           </div>
         </div>
 
@@ -781,14 +906,46 @@ export default function StudyTracker() {
                     {(() => {
                       const info = getDaysRemaining(item);
                       if (info.daysToComplete > 0) {
+                        const isAdjusting = adjustingId === item.id && adjustingType === (isSeries ? 'series' : 'book');
                         return (
-                          <p style={{ margin: '0.25rem 0 0 0', fontSize: '12px', color: colors.textSecondary, fontWeight: '500' }}>
-                            Plan: {info.daysToComplete} days · {info.daysRemaining} day{info.daysRemaining !== 1 ? 's' : ''} remaining
-                          </p>
+                          <div style={{ margin: '0.25rem 0 0 0' }} onClick={(e) => e.stopPropagation()}>
+                            <p style={{ margin: 0, fontSize: '12px', color: colors.textSecondary, fontWeight: '500', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              Plan: {info.daysToComplete} days · {info.daysRemaining} day{info.daysRemaining !== 1 ? 's' : ''} remaining
+                              <button type="button" onClick={() => { setAdjustingId(item.id); setAdjustingType(isSeries ? 'series' : 'book'); setAdjustingDays(String(item.daysToComplete)); setAdjustingStartFromToday(false); }} style={{ padding: '0.2rem 0.5rem', fontSize: '11px', border: `0.5px solid ${colors.border}`, background: colors.bgSecondary, borderRadius: 4, cursor: 'pointer', color: colors.text, fontWeight: '500' }}>Adjust</button>
+                            </p>
+                            {isAdjusting && (
+                              <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', border: `0.5px solid ${colors.border}` }}>
+                                <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Days to complete</label>
+                                <input type="number" min={1} value={adjustingDays} onChange={(e) => setAdjustingDays(e.target.value)} style={{ width: '80px', padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
+                                <label style={{ fontSize: '12px', color: colors.text, marginLeft: '0.5rem' }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                                <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                                  <button type="button" onClick={() => applyAdjust()} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: colors.bgPrimary, border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Save</button>
+                                  <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         );
                       }
                       return null;
                     })()}
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.5rem', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        {(item.tagIds || []).map(tagId => {
+                          const tag = tags.find(t => t.id === tagId);
+                          if (!tag) return null;
+                          return (
+                            <span key={tagId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.2rem 0.5rem', fontSize: '11px', borderRadius: 4, background: tag.color || '#3b82f6', color: '#fff' }}>
+                              {tag.name}
+                              <button type="button" onClick={() => { if (isSeries) updateSeries(series.map(s => s.id === item.id ? { ...s, tagIds: (s.tagIds || []).filter(id => id !== tagId) } : s)); else updateBooks(books.map(b => b.id === item.id ? { ...b, tagIds: (b.tagIds || []).filter(id => id !== tagId) } : b)); }} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, fontSize: '12px', lineHeight: 1 }}>×</button>
+                            </span>
+                          );
+                        })}
+                        <select value="" onChange={(e) => { const id = e.target.value; if (!id) return; const tag = tags.find(t => t.id === Number(id)); if (tag) { if (isSeries) updateSeries(series.map(s => s.id === item.id ? { ...s, tagIds: [...(s.tagIds || []), tag.id] } : s)); else updateBooks(books.map(b => b.id === item.id ? { ...b, tagIds: [...(b.tagIds || []), tag.id] } : b)); } e.target.value = ''; }} style={{ padding: '0.2rem 0.4rem', fontSize: '11px', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgSecondary, color: colors.text }}>
+                          <option value="">+ Add tag</option>
+                          {tags.filter(t => !(item.tagIds || []).includes(t.id)).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      </div>
 
                     <div style={{ marginBottom: '0.5rem', marginTop: '0.5rem' }}>
                       <div style={{ fontSize: '12px', color: colors.textSecondary, marginBottom: '0.25rem', fontWeight: '500' }}>
@@ -1315,26 +1472,40 @@ export default function StudyTracker() {
                 <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '18px', fontWeight: '500', color: colors.text }}>{book.title}</h3>
                 {book.author && <p style={{ margin: '0 0 0.25rem 0', fontSize: '14px', color: colors.textSecondary }}>by {book.author}</p>}
                 {daysInfo.daysToComplete > 0 && (
-                  <p style={{ margin: '0 0 1rem 0', fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>
-                    Plan: {daysInfo.daysToComplete} days · {daysInfo.daysRemaining} day{daysInfo.daysRemaining !== 1 ? 's' : ''} remaining
-                  </p>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      Plan: {daysInfo.daysToComplete} days · {daysInfo.daysRemaining} day{daysInfo.daysRemaining !== 1 ? 's' : ''} remaining
+                      <button type="button" onClick={() => { setAdjustingId(book.id); setAdjustingType('book'); setAdjustingDays(String(book.daysToComplete)); setAdjustingStartFromToday(false); }} style={{ padding: '0.2rem 0.5rem', fontSize: '11px', border: `0.5px solid ${colors.border}`, background: colors.bgSecondary, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Adjust</button>
+                    </p>
+                    {adjustingId === book.id && adjustingType === 'book' && (
+                      <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', border: `0.5px solid ${colors.border}` }}>
+                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Days to complete</label>
+                        <input type="number" min={1} value={adjustingDays} onChange={(e) => setAdjustingDays(e.target.value)} style={{ width: '80px', padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
+                        <label style={{ fontSize: '12px', color: colors.text }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                          <button type="button" onClick={() => applyAdjust()} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: colors.bgPrimary, border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Save</button>
+                          <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <div style={{ padding: '1.5rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', marginBottom: '1rem' }}>
                   <div style={{ marginBottom: '1.5rem' }}>
                     <div style={{ fontSize: '12px', color: colors.textSecondary, marginBottom: '0.75rem', fontWeight: '500' }}>Pages: {book.currentPage} / {book.totalPages}</div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.max(0, b.currentPage - 5) } : b))} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 5</button>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.max(0, b.currentPage - 1) } : b))} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 1</button>
-                      <input type="number" value={book.currentPage} onChange={(e) => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: parseInt(e.target.value) || 0 } : b))} style={{ width: '80px', padding: '0.75rem', fontSize: '16px', fontWeight: '600', textAlign: 'center', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', background: 'var(--color-background-primary)' }} />
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.min(b.totalPages, b.currentPage + 1) } : b))} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 1</button>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.min(b.totalPages, b.currentPage + 5) } : b))} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 5</button>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.max(0, b.currentPage - 5) } : b), selectedDate)} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 5</button>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.max(0, b.currentPage - 1) } : b), selectedDate)} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 1</button>
+                      <input type="number" value={book.currentPage} onChange={(e) => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: parseInt(e.target.value) || 0 } : b), selectedDate)} style={{ width: '80px', padding: '0.75rem', fontSize: '16px', fontWeight: '600', textAlign: 'center', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', background: 'var(--color-background-primary)' }} />
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.min(b.totalPages, b.currentPage + 1) } : b), selectedDate)} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 1</button>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.min(b.totalPages, b.currentPage + 5) } : b), selectedDate)} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 5</button>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.min(b.totalPages, b.currentPage + pagesToCompleteToday) } : b))} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: Math.min(b.totalPages, b.currentPage + pagesToCompleteToday) } : b), selectedDate)} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
                         Today's quota (+{pagesToCompleteToday}p)
                       </button>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: b.totalPages } : b))} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, currentPage: b.totalPages } : b), selectedDate)} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
                         Finish
                       </button>
                     </div>
@@ -1343,13 +1514,13 @@ export default function StudyTracker() {
                   <div style={{ borderTop: `0.5px solid ${colors.border}`, paddingTop: '1rem' }}>
                     <div style={{ fontSize: '12px', color: colors.textSecondary, marginBottom: '0.75rem', fontWeight: '500' }}>Notes: {book.notesPage || 0} / {book.currentPage}</div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem' }}>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.max(0, (b.notesPage || 0) - 5) } : b))} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 5</button>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.max(0, (b.notesPage || 0) - 1) } : b))} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 1</button>
-                      <input type="number" value={book.notesPage || 0} onChange={(e) => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: parseInt(e.target.value) || 0 } : b))} style={{ flex: 1, padding: '0.5rem', fontSize: '14px', fontWeight: '600', textAlign: 'center', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', background: 'var(--color-background-primary)' }} />
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.min(b.currentPage, (b.notesPage || 0) + 1) } : b))} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 1</button>
-                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.min(b.currentPage, (b.notesPage || 0) + 5) } : b))} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 5</button>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.max(0, (b.notesPage || 0) - 5) } : b), selectedDate)} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 5</button>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.max(0, (b.notesPage || 0) - 1) } : b), selectedDate)} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 1</button>
+                      <input type="number" value={book.notesPage || 0} onChange={(e) => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: parseInt(e.target.value) || 0 } : b), selectedDate)} style={{ flex: 1, padding: '0.5rem', fontSize: '14px', fontWeight: '600', textAlign: 'center', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', background: 'var(--color-background-primary)' }} />
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.min(b.currentPage, (b.notesPage || 0) + 1) } : b), selectedDate)} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 1</button>
+                      <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: Math.min(b.currentPage, (b.notesPage || 0) + 5) } : b), selectedDate)} style={{ padding: '0.5rem 0.75rem', fontSize: '14px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 5</button>
                     </div>
-                    <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: b.currentPage } : b))} style={{ width: '100%', padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
+                    <button onClick={() => updateBooks(books.map(b => b.id === book.id ? { ...b, notesPage: b.currentPage } : b), selectedDate)} style={{ width: '100%', padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
                       Mark all as noted
                     </button>
                   </div>
@@ -1393,26 +1564,40 @@ export default function StudyTracker() {
                 <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '18px', fontWeight: '500', color: colors.text }}>{s.title}</h3>
                 {s.instructor && <p style={{ margin: '0 0 0.25rem 0', fontSize: '14px', color: colors.textSecondary }}>by {s.instructor}</p>}
                 {daysInfo.daysToComplete > 0 && (
-                  <p style={{ margin: '0 0 1rem 0', fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>
-                    Plan: {daysInfo.daysToComplete} days · {daysInfo.daysRemaining} day{daysInfo.daysRemaining !== 1 ? 's' : ''} remaining
-                  </p>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      Plan: {daysInfo.daysToComplete} days · {daysInfo.daysRemaining} day{daysInfo.daysRemaining !== 1 ? 's' : ''} remaining
+                      <button type="button" onClick={() => { setAdjustingId(s.id); setAdjustingType('series'); setAdjustingDays(String(s.daysToComplete)); setAdjustingStartFromToday(false); }} style={{ padding: '0.2rem 0.5rem', fontSize: '11px', border: `0.5px solid ${colors.border}`, background: colors.bgSecondary, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Adjust</button>
+                    </p>
+                    {adjustingId === s.id && adjustingType === 'series' && (
+                      <div style={{ marginTop: '0.5rem', padding: '0.75rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', border: `0.5px solid ${colors.border}` }}>
+                        <label style={{ display: 'block', fontSize: '12px', marginBottom: '0.25rem', color: colors.textSecondary }}>Days to complete</label>
+                        <input type="number" min={1} value={adjustingDays} onChange={(e) => setAdjustingDays(e.target.value)} style={{ width: '80px', padding: '0.4rem', fontSize: '13px', marginRight: '0.5rem', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgPrimary, color: colors.text }} />
+                        <label style={{ fontSize: '12px', color: colors.text }}><input type="checkbox" checked={adjustingStartFromToday} onChange={(e) => setAdjustingStartFromToday(e.target.checked)} /> Start from today</label>
+                        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
+                          <button type="button" onClick={() => applyAdjust()} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: colors.bgPrimary, border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Save</button>
+                          <button type="button" onClick={() => { setAdjustingId(null); setAdjustingType(null); setAdjustingDays(''); }} style={{ padding: '0.35rem 0.75rem', fontSize: '12px', background: 'transparent', border: `0.5px solid ${colors.border}`, borderRadius: 4, cursor: 'pointer', color: colors.text }}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <div style={{ padding: '1.5rem', background: colors.bgSecondary, borderRadius: 'var(--border-radius-md)', marginBottom: '1rem' }}>
                   <div style={{ marginBottom: '1.5rem' }}>
                     <div style={{ fontSize: '12px', color: colors.textSecondary, marginBottom: '0.75rem', fontWeight: '500' }}>Lectures: {s.lecturesCompleted} / {s.totalLectures}</div>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.max(0, x.lecturesCompleted - 5) } : x))} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 5</button>
-                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.max(0, x.lecturesCompleted - 1) } : x))} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 1</button>
-                      <input type="number" value={s.lecturesCompleted} onChange={(e) => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: parseInt(e.target.value) || 0 } : x))} style={{ width: '80px', padding: '0.75rem', fontSize: '16px', fontWeight: '600', textAlign: 'center', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', background: 'var(--color-background-primary)' }} />
-                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.min(x.totalLectures, x.lecturesCompleted + 1) } : x))} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 1</button>
-                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.min(x.totalLectures, x.lecturesCompleted + 5) } : x))} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 5</button>
+                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.max(0, x.lecturesCompleted - 5) } : x), selectedDate)} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 5</button>
+                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.max(0, x.lecturesCompleted - 1) } : x), selectedDate)} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>− 1</button>
+                      <input type="number" value={s.lecturesCompleted} onChange={(e) => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: parseInt(e.target.value) || 0 } : x), selectedDate)} style={{ width: '80px', padding: '0.75rem', fontSize: '16px', fontWeight: '600', textAlign: 'center', border: '0.5px solid var(--color-border-secondary)', borderRadius: 'var(--border-radius-md)', background: 'var(--color-background-primary)' }} />
+                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.min(x.totalLectures, x.lecturesCompleted + 1) } : x), selectedDate)} style={{ padding: '0.75rem 0.75rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 1</button>
+                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.min(x.totalLectures, x.lecturesCompleted + 5) } : x), selectedDate)} style={{ padding: '0.75rem 1rem', fontSize: '16px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '600' }}>+ 5</button>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
-                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.min(x.totalLectures, x.lecturesCompleted + lecturesToCompleteToday) } : x))} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
+                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: Math.min(x.totalLectures, x.lecturesCompleted + lecturesToCompleteToday) } : x), selectedDate)} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
                         Today's quota (+{lecturesToCompleteToday})
                       </button>
-                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: x.totalLectures } : x))} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
+                      <button onClick={() => updateSeries(series.map(x => x.id === s.id ? { ...x, lecturesCompleted: x.totalLectures } : x), selectedDate)} style={{ padding: '0.75rem', fontSize: '13px', border: '0.5px solid var(--color-border-secondary)', background: 'var(--color-background-primary)', borderRadius: 'var(--border-radius-md)', cursor: 'pointer', fontWeight: '500' }}>
                         Finish
                       </button>
                     </div>
@@ -1426,7 +1611,7 @@ export default function StudyTracker() {
                           key={`lecture-${i + 1}`}
                           onClick={() => {
                             const key = `lecture-${i + 1}`;
-                            updateSeries(series.map(x => x.id === s.id ? { ...x, lectureNotes: { ...x.lectureNotes, [key]: !x.lectureNotes[key] ? selectedDate : undefined } } : x));
+                            updateSeries(series.map(x => x.id === s.id ? { ...x, lectureNotes: { ...x.lectureNotes, [key]: !x.lectureNotes[key] ? selectedDate : undefined } } : x), selectedDate);
                           }}
                           style={{
                             padding: '0.5rem 0.75rem',

@@ -39,3 +39,8 @@ Output: `dist/mac-arm64/Study Tracker.app`. Copy that folder anywhere (e.g. Appl
 ## Data
 
 Data is stored in a JSON file in your Mac user data folder (e.g. `~/Library/Application Support/study-tracker/store.json`).
+
+## Updates
+
+- **v1.2** — Adjust goal (change days to complete, optional “Start from today”), streak (consecutive days of logging), tags (create, color-code, assign to books/series).
+- **v1.1** — Date auto-updates after sleep; book notes; full-window theme; today’s quota shows remaining for the day; plan and days remaining on entries; completed items hidden from daily view.
