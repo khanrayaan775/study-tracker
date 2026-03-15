@@ -362,7 +362,7 @@ export default function StudyTracker() {
         }
       }
 
-      if (book.currentPage > (book.notesPage || 0)) {
+      if (book.currentPage > (book.notesPage || 0) && (!book.startDate || book.startDate <= selectedDate)) {
         tasks.push({
           id: `notes-${book.id}`,
           type: 'notes',
@@ -892,17 +892,18 @@ export default function StudyTracker() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', marginBottom: '2rem', animation: 'fadeIn 0.3s ease' }}>
             {itemsToShow.map((item) => {
               const isSeries = 'totalLectures' in item;
+              const isToRead = !isSeries ? (item.currentPage === 0 || (item.startDate && item.startDate > today)) : (item.lecturesCompleted === 0 || (item.startDate && item.startDate > today));
               const progress = Math.round(((isSeries ? item.lecturesCompleted : item.currentPage) / (isSeries ? item.totalLectures : item.totalPages)) * 100);
 
               return (
                 <div key={item.id}
-                  onClick={() => setView('daily')}
+                  onClick={() => { if (!isToRead) setView('daily'); }}
                   style={{
                     padding: '1.5rem',
                     background: colors.bgPrimary,
                     borderRadius: 'var(--border-radius-lg)',
                     border: `0.5px solid ${colors.border}`,
-                    cursor: 'pointer',
+                    cursor: isToRead ? 'default' : 'pointer',
                     transition: 'all 0.2s ease',
                     display: 'flex',
                     gap: '1.5rem',
@@ -922,7 +923,7 @@ export default function StudyTracker() {
                   <div style={{ flex: 1 }}>
                     <h3 style={{ margin: '0 0 0.25rem 0', fontSize: '16px', fontWeight: '500' }}>{item.title}</h3>
                     {(item.author || item.instructor) && <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '400' }}>by {item.author || item.instructor}</p>}
-                    {(() => {
+                    {!isToRead && (() => {
                       const info = getDaysRemaining(item);
                       if (info.daysToComplete > 0) {
                         const isAdjusting = adjustingId === item.id && adjustingType === (isSeries ? 'series' : 'book');
@@ -970,7 +971,7 @@ export default function StudyTracker() {
                         </select>
                       </div>
 
-                    {!isSeries && (
+                    {!isSeries && isToRead && (
                       <div style={{ marginTop: '0.5rem', fontSize: '12px', color: colors.textSecondary }} onClick={(e) => e.stopPropagation()}>
                         <label style={{ fontWeight: '500' }}>Start after: </label>
                         <select value={item.startsAfterBookId ?? ''} onChange={(e) => { const v = e.target.value; updateBooks(books.map(b => b.id === item.id ? { ...b, startsAfterBookId: v ? Number(v) : null } : b)); }} style={{ padding: '0.25rem 0.5rem', fontSize: '12px', border: `0.5px solid ${colors.border}`, borderRadius: 4, background: colors.bgSecondary, color: colors.text, marginLeft: '0.25rem' }}>
@@ -980,6 +981,7 @@ export default function StudyTracker() {
                       </div>
                     )}
 
+                    {!isToRead && (<>
                     <div style={{ marginBottom: '0.5rem', marginTop: '0.5rem' }}>
                       <div style={{ fontSize: '12px', color: colors.textSecondary, marginBottom: '0.25rem', fontWeight: '500' }}>
                         {isSeries ? `Lectures: ${item.lecturesCompleted} / ${item.totalLectures}` : `Pages: ${item.currentPage} / ${item.totalPages}`}
@@ -1030,10 +1032,12 @@ export default function StudyTracker() {
                         />
                       </div>
                     )}
+                    </>)}
+
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
-                    {!isSeries && item.currentPage === 0 && (
+                    {!isSeries && isToRead && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1059,7 +1063,7 @@ export default function StudyTracker() {
                         Start reading
                       </button>
                     )}
-                    {!isSeries && item.currentPage === 0 && (
+                    {!isSeries && isToRead && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1084,7 +1088,7 @@ export default function StudyTracker() {
                         Plan reading
                       </button>
                     )}
-                    {isSeries && item.lecturesCompleted === 0 && (
+                    {isSeries && isToRead && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
