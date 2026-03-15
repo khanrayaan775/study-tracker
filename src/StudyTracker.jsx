@@ -362,12 +362,21 @@ export default function StudyTracker() {
         }
       }
 
-      if (book.currentPage > (book.notesPage || 0) && (!book.startDate || book.startDate <= selectedDate)) {
+      const hasUnnotedPages = book.currentPage > (book.notesPage || 0);
+      const readingTask = book.daysToComplete && book.currentPage < book.totalPages && (!book.startDate || book.startDate <= selectedDate)
+        ? getDailyTask(book, selectedDate)
+        : null;
+      const hasPagesToReadToday = readingTask && readingTask.targetAmount > book.currentPage;
+      if ((!book.startDate || book.startDate <= selectedDate) && (hasUnnotedPages || hasPagesToReadToday)) {
+        const unnotedCount = book.currentPage - (book.notesPage || 0);
+        const pagesToReadToday = readingTask && readingTask.targetAmount > book.currentPage
+          ? Math.min(readingTask.targetAmount - book.currentPage, book.totalPages - book.currentPage)
+          : 0;
         tasks.push({
           id: `notes-${book.id}`,
           type: 'notes',
           title: book.title,
-          amount: book.currentPage - (book.notesPage || 0),
+          amount: hasUnnotedPages ? unnotedCount : pagesToReadToday,
           unit: 'pending pages'
         });
       }
@@ -400,12 +409,19 @@ export default function StudyTracker() {
       for (let i = 1; i <= s.lecturesCompleted; i++) {
         if (!s.lectureNotes[`lecture-${i}`]) unnotedLectures++;
       }
-      if (unnotedLectures > 0) {
+      const sTask = s.daysToComplete && s.lecturesCompleted < s.totalLectures && (!s.startDate || s.startDate <= selectedDate)
+        ? getDailyTask(s, selectedDate, true)
+        : null;
+      const hasLecturesToday = sTask && sTask.targetAmount > s.lecturesCompleted;
+      if ((!s.startDate || s.startDate <= selectedDate) && (unnotedLectures > 0 || hasLecturesToday)) {
+        const lecturesToWatchToday = sTask && sTask.targetAmount > s.lecturesCompleted
+          ? Math.min(sTask.targetAmount - s.lecturesCompleted, s.totalLectures - s.lecturesCompleted)
+          : 0;
         tasks.push({
           id: `series-notes-${s.id}`,
           type: 'series-notes',
           title: s.title,
-          amount: unnotedLectures,
+          amount: unnotedLectures > 0 ? unnotedLectures : lecturesToWatchToday,
           unit: 'pending lectures'
         });
       }
