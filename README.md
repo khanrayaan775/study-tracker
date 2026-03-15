@@ -2,10 +2,21 @@
 
 Track books and video series progress with daily goals. Built as a native Mac app with Electron.
 
+## First time (after clone)
+
+The repo doesn’t include the built app. Install and build once:
+
+```bash
+npm install
+npm run electron:build
+```
+
+That creates the `dist/` folder and the app inside it. Then use the options below.
+
 ## Run the app
 
 **Option A — Use the built app**
-- Open `dist/mac-arm64/Study Tracker.app` (double-click or from Finder).
+- Open `dist/mac-arm64/Study Tracker.app` (only exists after you run `npm run electron:build`).
 
 **Option B — Development (with hot reload)**
 ```bash
